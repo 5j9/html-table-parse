@@ -1,6 +1,6 @@
 import pytest
 
-from html_table_parse import normalize_spaces, to_dict, to_list
+from html_table_parse import normalize_spaces, to_dict, to_dicts, to_list
 
 
 class TestNormalizeSpaces:
@@ -49,14 +49,14 @@ class TestToList:
         assert to_list(html) == expected
 
     def test_table_with_mixed_th_and_td(self):
+        """If ANY cell in first row is th, treat as header row."""
         html = """
         <table>
             <tr><th>Name</th><th>Age</th><td>City</td></tr>
             <tr><td>Alice</td><td>30</td><td>NYC</td></tr>
         </table>
         """
-        # The first row has mixed th/td, but our parser only checks if ALL are th
-        # So this will treat the first row as data, not headers
+        # First row is treated as header because it contains th
         expected = [['Name', 'Age', 'City'], ['Alice', '30', 'NYC']]
         assert to_list(html) == expected
 
@@ -85,7 +85,7 @@ class TestToList:
             <tr><td></td><td></td></tr>
         </table>
         """
-        # Empty rows should be skipped
+        # Empty rows should be skipped, but not empty cells
         expected = [['Name', 'Age'], ['Alice', ''], ['', '30']]
         assert to_list(html) == expected
 
@@ -123,11 +123,11 @@ class TestToList:
             <tr><td>City: NYC</td></tr>
         </table>
         """
-        # Basic parser doesn't handle rowspan specially
+        # Now rowspan is handled properly
         expected = [
             ['Name', 'Details'],
             ['Alice', 'Age: 30'],
-            ['Alice', 'City: NYC'],
+            ['', 'City: NYC'],  # Empty because Alice spans across rows
         ]
         assert to_list(html) == expected
 
@@ -138,8 +138,11 @@ class TestToList:
             <tr><td>John</td><td>Doe</td><td>40</td></tr>
         </table>
         """
-        # Basic parser doesn't handle colspan specially
-        expected = [['Name', 'Name', 'Age'], ['John', 'Doe', '40']]
+        # Now colspan is handled properly
+        expected = [
+            ['Name', 'Name', 'Age'],  # Same text appears twice
+            ['John', 'Doe', '40'],
+        ]
         assert to_list(html) == expected
 
     def test_complex_nested_elements(self):
@@ -165,6 +168,38 @@ class TestToList:
         </table>
         """
         expected = [['Name', 'Age'], ['Alice', '30'], ['Bob', '25']]
+        assert to_list(html) == expected
+
+    def test_table_with_complex_rowspan_colspan(self):
+        html = """
+        <table>
+            <tr>
+                <th rowspan="2">Department</th>
+                <th colspan="2">Employee</th>
+            </tr>
+            <tr>
+                <th>Name</th>
+                <th>Role</th>
+            </tr>
+            <tr>
+                <td>Engineering</td>
+                <td>Alice</td>
+                <td>Developer</td>
+            </tr>
+            <tr>
+                <td>Marketing</td>
+                <td>Bob</td>
+                <td>Manager</td>
+            </tr>
+        </table>
+        """
+        # This is a more complex case with both rowspan and colspan
+        expected = [
+            ['Department', 'Employee', 'Employee'],
+            ['', 'Name', 'Role'],
+            ['Engineering', 'Alice', 'Developer'],
+            ['Marketing', 'Bob', 'Manager'],
+        ]
         assert to_list(html) == expected
 
 
@@ -208,7 +243,7 @@ class TestToDict:
         expected = {
             'Name': ['Alice', 'Bob'],
             'Age': ['30', '25'],
-            'City': ['', 'LA'],  # Missing cell gets empty string
+            'City': ['', 'LA'],
         }
         assert to_dict(html) == expected
 
@@ -247,15 +282,15 @@ class TestToDict:
         assert to_dict(html) == expected
 
     def test_duplicate_headers(self):
+        """Duplicate headers are made unique with numbers."""
         html = """
         <table>
             <tr><th>Name</th><th>Name</th><th>Age</th></tr>
             <tr><td>Alice</td><td>Bob</td><td>30</td></tr>
         </table>
         """
-        # Duplicate headers are allowed, but will overwrite in dict
-        # This is a limitation of using dict with duplicate keys
-        expected = {'Name': ['Bob'], 'Age': ['30']}
+        # Now duplicate headers get _2, _3, etc.
+        expected = {'Name': ['Alice'], 'Name_2': ['Bob'], 'Age': ['30']}
         assert to_dict(html) == expected
 
     def test_multiple_tables_with_dict(self):
@@ -273,6 +308,34 @@ class TestToDict:
         expected_table1 = {'A': ['X'], 'B': ['Y']}
         assert to_dict(html, index=0) == expected_table0
         assert to_dict(html, index=1) == expected_table1
+
+
+class TestToDicts:
+    """Tests for the to_dicts function (list of dicts)."""
+
+    def test_simple_table(self):
+        html = """
+        <table>
+            <tr><th>Name</th><th>Age</th><th>City</th></tr>
+            <tr><td>Alice</td><td>30</td><td>NYC</td></tr>
+            <tr><td>Bob</td><td>25</td><td>LA</td></tr>
+        </table>
+        """
+        expected = [
+            {'Name': 'Alice', 'Age': '30', 'City': 'NYC'},
+            {'Name': 'Bob', 'Age': '25', 'City': 'LA'},
+        ]
+        assert to_dicts(html) == expected
+
+    def test_duplicate_headers(self):
+        html = """
+        <table>
+            <tr><th>Name</th><th>Name</th><th>Age</th></tr>
+            <tr><td>Alice</td><td>Bob</td><td>30</td></tr>
+        </table>
+        """
+        expected = [{'Name': 'Alice', 'Name_2': 'Bob', 'Age': '30'}]
+        assert to_dicts(html) == expected
 
 
 class TestIntegration:
@@ -331,9 +394,27 @@ class TestIntegration:
             'Salary': ['75,000', '65,000', '70,000'],
         }
 
+        expected_dicts = [
+            {
+                'ID': '001',
+                'Name': 'John Smith',
+                'Department': 'Engineering',
+                'Salary': '75,000',
+            },
+            {
+                'ID': '002',
+                'Name': 'Jane Doe',
+                'Department': 'Marketing',
+                'Salary': '65,000',
+            },
+            {
+                'ID': '003',
+                'Name': 'Bob Johnson',
+                'Department': 'Sales',
+                'Salary': '70,000',
+            },
+        ]
+
         assert to_list(html) == expected_list
         assert to_dict(html) == expected_dict
-
-
-# Run tests with: pytest test_module.py -v
-# Or with coverage: pytest test_module.py --cov=your_module --cov-report=term-missing
+        assert to_dicts(html) == expected_dicts
