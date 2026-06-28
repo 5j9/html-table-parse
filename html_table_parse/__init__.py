@@ -1,4 +1,4 @@
-__version__ = '0.2.1'
+__version__ = '0.2.2.dev1'
 
 from collections import defaultdict as _defaultdict
 from functools import partial as _partial
