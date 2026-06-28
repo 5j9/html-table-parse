@@ -7,7 +7,7 @@ name = 'html-table-parse'
 version = "0.2.1.dev1"
 authors = [{ name = '5j9', email = '5j9@users.noreply.github.com' }]
 description = 'Parse HTML table as Python list or dict'
-readme = 'README.rst'
+readme = 'README.md'
 requires-python = '>=3.14'
 dependencies = [
     "lxml>=6.1.1",
